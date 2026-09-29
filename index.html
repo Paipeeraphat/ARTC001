@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Cyber Detective - วิทยาการคำนวณ ม.4</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Sarabun:wght@400;600&display=swap');
+        
+        body {
+            /* ใช้ฟอนต์แนว Tech/Cyberpunk สำหรับหัวข้อ และ Sarabun สำหรับเนื้อหา */
+            font-family: 'Sarabun', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #050b14;
+            color: #e2e8f0;
+            user-select: none;
+        }
+
+        h1, h2, h3, .cyber-font {
+            font-family: 'Chakra Petch', sans-serif;
+        }
+
+        /* --- STREAMING_CHUNK:Styling HUD and UI Elements --- */
+        #ar-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            /* พื้นหลังจำลองโหมด AR Scanner Camera */
+            background: radial-gradient(circle at center, #0a192f 0%, #020c1b 100%);
+            background-image: 
+                linear-gradient(rgba(0, 255, 170, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 170, 0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+
+        #webgl-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            touch-action: none;
+        }
+
+        /* Camera Corners Effect */
+        .cam-corner {
+            position: absolute;
+            width: 40px; height: 40px;
+            border: 3px solid #00ffaa;
+            z-index: 5;
+            opacity: 0.5;
+        }
+        .cam-tl { top: 20px; left: 20px; border-right: none; border-bottom: none; }
+        .cam-tr { top: 20px; right: 20px; border-left: none; border-bottom: none; }
+        .cam-bl { bottom: 20px; left: 20px; border-right: none; border-top: none; }
+        .cam-br { bottom: 20px; right: 20px; border-left: none; border-top: none; }
+
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pointer-events-auto { pointer-events: auto; }
+
+        .glass-panel {
+            background: rgba(2, 12, 27, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0, 255, 170, 0.3);
+            box-shadow: 0 0 15px rgba(0, 255, 170, 0.1);
+        }
+
+        /* Scanning Animation */
+        @keyframes scan-line {
+            0% { top: 0; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .scanner-fx {
+            position: absolute;
+            width: 100%; height: 2px;
+            background: #00ffaa;
+            box-shadow: 0 0 20px 5px rgba(0, 255, 170, 0.5);
+            animation: scan-line 2.5s infinite linear;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* Tools Toggle */
+        .tool-btn {
+            transition: all 0.3s;
+            filter: grayscale(80%);
+            opacity: 0.7;
+        }
+        .tool-btn.active {
+            filter: grayscale(0%);
+            opacity: 1;
+            box-shadow: 0 0 15px rgba(0, 255, 170, 0.6);
+            border-color: #00ffaa;
+            transform: translateY(-5px);
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 50;
+            width: 90%; max-width: 500px;
+        }
+
+        .glitch-text {
+            color: #ff3366;
+            text-shadow: 2px 0 #00ffaa, -2px 0 #00ffff;
+            animation: glitch 1s infinite alternate;
+        }
+        @keyframes glitch {
+            0% { transform: skewX(0deg); }
+            20% { transform: skewX(-10deg); }
+            25% { transform: skewX(10deg); }
+            30% { transform: skewX(0deg); }
+            100% { transform: skewX(0deg); }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="ar-container">
+        <!-- Decoration -->
+        <div class="cam-corner cam-tl"></div>
+        <div class="cam-corner cam-tr"></div>
+        <div class="cam-corner cam-bl"></div>
+        <div class="cam-corner cam-br"></div>
+        <div class="scanner-fx"></div>
+
+        <!-- 3D Canvas -->
+        <canvas id="webgl-canvas"></canvas>
+
+        <!-- --- STREAMING_CHUNK:Building UI Layer --- -->
+        <div id="ui-layer">
+            
+            <!-- Header HUD -->
+            <header class="p-4 flex justify-between items-start pointer-events-auto">
+                <div class="glass-panel p-3 rounded-lg border-l-4 border-l-teal-400">
+                    <h1 class="text-xl font-bold text-teal-400 cyber-font"><i class="fas fa-user-secret mr-2"></i>AR Cyber Detective</h1>
+                    <p class="text-xs text-gray-300">แฟ้มคดี: #404 เพจโรงเรียนถูกแฮก</p>
+                </div>
+                
+                <div class="glass-panel p-3 rounded-lg flex flex-col gap-2 min-w-[120px]">
+                    <div class="text-xs text-gray-400 cyber-font">ความคืบหน้าคดี</div>
+                    <div id="progress-phone" class="text-sm text-gray-500"><i class="fas fa-mobile-alt mr-2 w-4"></i>หลักฐาน #1</div>
+                    <div id="progress-note" class="text-sm text-gray-500"><i class="fas fa-sticky-note mr-2 w-4"></i>หลักฐาน #2</div>
+                    <div id="progress-usb" class="text-sm text-gray-500"><i class="fab fa-usb mr-2 w-4"></i>หลักฐาน #3</div>
+                </div>
+            </header>
+
+            <!-- Center Info -->
+            <div class="flex-1 relative flex items-center justify-center">
+                <!-- Reticle for center aiming -->
+                <div class="w-12 h-12 border border-teal-500/50 rounded-full flex items-center justify-center pointer-events-none">
+                    <div class="w-1 h-1 bg-teal-400 rounded-full"></div>
+                </div>
+                
+                <div id="info-tooltip" class="absolute bottom-10 glass-panel px-6 py-3 rounded-full text-sm text-teal-100 cyber-font pointer-events-auto transition-all text-center">
+                    <i class="fas fa-crosshairs text-teal-400 mr-2"></i> สแกนโต๊ะทำงานเพื่อหาวัตถุพยาน
+                </div>
+            </div>
+
+            <!-- Tool Selector (Bottom) -->
+            <footer class="p-6 bg-gradient-to-t from-gray-900 to-transparent pointer-events-auto">
+                <div class="text-center text-xs text-teal-400 mb-2 cyber-font">CYBER TOOLS (เลือกเครื่องมือแล้วแตะที่วัตถุพยาน)</div>
+                <div class="flex justify-center gap-4">
+                    <!-- Tool 1: Visual Scanner -->
+                    <button id="tool-view" class="tool-btn active glass-panel p-4 rounded-xl border border-gray-600 flex flex-col items-center w-24" onclick="selectTool('view')">
+                        <i class="fas fa-eye text-2xl text-blue-400 mb-1"></i>
+                        <span class="text-[10px] cyber-font">มองพินิจ</span>
+                    </button>
+                    <!-- Tool 2: SSL/Link Inspector -->
+                    <button id="tool-ssl" class="tool-btn glass-panel p-4 rounded-xl border border-gray-600 flex flex-col items-center w-24" onclick="selectTool('ssl')">
+                        <i class="fas fa-search-location text-2xl text-green-400 mb-1"></i>
+                        <span class="text-[10px] cyber-font">ตัวกรอง URL</span>
+                    </button>
+                    <!-- Tool 3: Metadata Extractor -->
+                    <button id="tool-meta" class="tool-btn glass-panel p-4 rounded-xl border border-gray-600 flex flex-col items-center w-24" onclick="selectTool('meta')">
+                        <i class="fas fa-fingerprint text-2xl text-purple-400 mb-1"></i>
+                        <span class="text-[10px] cyber-font">วิเคราะห์รอยเท้า</span>
+                    </button>
+                </div>
+            </footer>
+        </div>
+
+        <!-- --- STREAMING_CHUNK:Briefing & Modals --- -->
+        <!-- Lock/Security Modal -->
+        <div id="modal-lock" class="modal glass-panel rounded-xl p-6 pointer-events-auto border-t-4 border-t-red-500">
+            <h2 class="text-xl font-bold text-red-400 mb-3 cyber-font"><i class="fas fa-lock mr-2"></i>ระบบรักษาความปลอดภัย</h2>
+            <div class="bg-gray-800 p-3 rounded mb-4 text-sm border border-red-700">
+                <p id="lock-question" class="text-gray-200">คำถามเพื่อปลดล็อก...</p>
+            </div>
+            <div id="lock-choices" class="flex flex-col gap-2 mb-2">
+                <!-- Choices injected here -->
+            </div>
+            <p id="lock-feedback" class="text-xs text-center min-h-[2rem] mt-3 transition-colors"></p>
+            <button class="mt-4 w-full bg-gray-700 hover:bg-gray-600 py-2 rounded text-sm text-white transition-colors" onclick="closeModals()">ยกเลิก / ปิด</button>
+        </div>
+
+        <!-- Briefing Modal -->
+        <div id="modal-briefing" class="modal glass-panel rounded-xl p-6 pointer-events-auto border-t-4 border-t-teal-400 block">
+            <h2 id="case-title" class="text-2xl font-bold text-teal-400 mb-3 cyber-font"><i class="fas fa-folder-open mr-2"></i>แฟ้มคดี: กำลังโหลด...</h2>
+            <p id="case-desc" class="text-sm text-gray-300 mb-4 leading-relaxed">
+                กำลังวิเคราะห์ข้อมูลคดี...
+            </p>
+            <div id="case-hint" class="bg-gray-800/50 p-3 rounded mb-4 text-xs border border-gray-600 text-gray-400">
+                <i class="fas fa-lightbulb text-yellow-500 mr-1"></i> <strong>คำใบ้:</strong> ...
+            </div>
+            <button class="w-full bg-teal-600 hover:bg-teal-500 text-white py-3 rounded-lg font-bold cyber-font tracking-wider transition-colors" onclick="startGame()">
+                [ ยอมรับภารกิจ & เริ่มสแกน ]
+            </button>
+        </div>
+
+        <!-- Puzzle 1: Phone (Phishing / Social Engineering) -->
+        <div id="modal-phone" class="modal glass-panel rounded-xl p-0 pointer-events-auto border-t-4 border-t-blue-500 overflow-hidden">
+            <div class="bg-gray-900 p-4 border-b border-gray-700 flex justify-between items-center">
+                <h2 class="font-bold text-blue-400 cyber-font"><i class="fas fa-mobile-alt mr-2"></i>สมาร์ทโฟนของผู้เสียหาย</h2>
+                <button onclick="closeModals()" class="text-gray-500 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-4">
+                <p id="phone-desc" class="text-xs text-gray-400 mb-3">คุณเปิดดูข้อความล่าสุด...</p>
+                
+                <!-- Mock SMS UI -->
+                <div class="bg-white rounded-lg p-3 text-black mb-4">
+                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-200">
+                        <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white"><i class="fas fa-envelope"></i></div>
+                        <div>
+                            <div id="phone-sender" class="text-xs font-bold">Sender</div>
+                            <div class="text-[10px] text-gray-500">วันนี้ 10:15 น.</div>
+                        </div>
+                    </div>
+                    <p id="phone-msg" class="text-sm">Message content...</p>
+                    <div id="phone-fake-url" class="mt-2 p-2 bg-blue-50 rounded text-blue-600 text-xs break-all cursor-pointer border border-blue-200">
+                        http://fake-link.com
+                    </div>
+                </div>
+
+                <div id="phone-action-area" class="text-center">
+                    <p class="text-sm text-yellow-400 mb-2"><i class="fas fa-exclamation-triangle"></i> สงสัยว่าลิงก์นี้จะอันตราย!</p>
+                    <p class="text-xs text-gray-400">ปิดหน้าต่างนี้ แล้วใช้เครื่องมือ <span class="text-green-400">"ตัวกรอง URL (SSL Inspector)"</span> สแกนที่โทรศัพท์เพื่อตรวจสอบลิงก์ที่แท้จริง</p>
+                </div>
+                
+                <!-- This area shows up when SSL Inspector is used -->
+                <div id="phone-ssl-revealed" class="hidden">
+                    <div class="bg-gray-800 border border-green-500 p-3 rounded mb-3 text-sm">
+                        <div class="text-green-400 font-bold mb-1"><i class="fas fa-search"></i> URL ที่ซ่อนอยู่จริง:</div>
+                        <div id="phone-real-url" class="font-mono text-red-400 bg-black p-2 rounded">http://real-malicious-url.com</div>
+                    </div>
+                    <p id="phone-question" class="text-xs text-gray-300 mb-3">คำถาม?</p>
+                    <div id="phone-choices" class="flex flex-col gap-2">
+                        <!-- Choices injected here -->
+                    </div>
+                    <p id="phone-feedback" class="text-xs text-center min-h-[2rem] mt-3 transition-colors"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Puzzle 2: Note (Password Security) -->
+        <div id="modal-note" class="modal glass-panel rounded-xl p-6 pointer-events-auto border-t-4 border-t-yellow-400">
+            <h2 class="text-xl font-bold text-yellow-400 mb-3 cyber-font"><i class="fas fa-sticky-note mr-2"></i>กระดาษโน้ตบนโต๊ะ</h2>
+            <div class="bg-[#fef3c7] text-black p-4 rounded mb-4 font-handwriting transform -rotate-2 shadow-lg">
+                <p id="note-title" class="font-bold border-b border-gray-300 pb-1 mb-2">หัวข้อ:</p>
+                <p id="note-content" class="text-lg">Content</p>
+                <p id="note-subcontent" class="text-xs text-gray-500 mt-2">(รายละเอียด)</p>
+            </div>
+            
+            <p id="note-question" class="text-sm text-gray-300 mb-3">คำถาม?</p>
+            <div id="note-choices" class="flex flex-col gap-2 mb-2">
+                <!-- Choices injected here -->
+            </div>
+            <p id="note-feedback" class="text-xs text-center min-h-[2rem] mt-3 transition-colors"></p>
+            <button class="mt-2 w-full bg-gray-700 hover:bg-gray-600 py-2 rounded text-sm" onclick="closeModals()">ปิด</button>
+        </div>
+
+        <!-- Puzzle 3: USB (Metadata / Digital Footprint) -->
+        <div id="modal-usb" class="modal glass-panel rounded-xl p-0 pointer-events-auto border-t-4 border-t-purple-400 overflow-hidden">
+            <div class="bg-gray-900 p-4 border-b border-gray-700 flex justify-between items-center">
+                <h2 class="font-bold text-purple-400 cyber-font"><i class="fab fa-usb mr-2"></i>อุปกรณ์จัดเก็บข้อมูล</h2>
+                <button onclick="closeModals()" class="text-gray-500 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-4">
+                <p class="text-sm text-gray-300 mb-3">พบไฟล์โปรแกรมหนึ่งอยู่ใน Flash Drive หน้าตาไอคอนเป็นไฟล์ปกติ</p>
+                
+                <div class="flex items-center gap-4 bg-gray-800 p-3 rounded border border-gray-600 mb-4">
+                    <i class="fas fa-file-alt text-3xl text-blue-500"></i>
+                    <div>
+                        <div id="usb-filename" class="text-sm font-bold">filename.ext</div>
+                        <div class="text-xs text-gray-400">ขนาด: 2 MB</div>
+                    </div>
+                </div>
+
+                <div id="usb-action-area" class="text-center">
+                    <p class="text-xs text-gray-400">ปิดหน้าต่างนี้ แล้วใช้เครื่องมือ <span class="text-purple-400">"วิเคราะห์รอยเท้า (Metadata)"</span> เพื่อเจาะดูโครงสร้างไฟล์ที่แท้จริง</p>
+                </div>
+
+                <!-- Revealed by Meta Tool -->
+                <div id="usb-meta-revealed" class="hidden">
+                    <div id="usb-meta-box" class="bg-gray-900 border border-purple-500 p-3 rounded mb-3 text-xs font-mono text-green-400 leading-relaxed">
+                        <!-- Meta injected here -->
+                    </div>
+                    <p id="usb-question" class="text-sm text-gray-300 mb-3">คำถาม?</p>
+                    <div id="usb-choices" class="flex flex-col gap-2">
+                         <!-- Choices injected here -->
+                    </div>
+                    <p id="usb-feedback" class="text-xs text-center min-h-[2rem] mt-3 transition-colors"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Success Modal -->
+        <div id="modal-success" class="modal glass-panel rounded-xl p-8 pointer-events-auto border-t-4 border-t-green-500 text-center">
+            <i class="fas fa-check-circle text-6xl text-green-400 mb-4"></i>
+            <h2 class="text-2xl font-bold text-white mb-2 cyber-font">ปิดคดีสำเร็จ!</h2>
+            <p id="success-summary" class="text-gray-300 mb-4 text-sm leading-relaxed">
+                สรุปคดี
+            </p>
+            <div id="success-lesson" class="bg-green-900/40 text-green-300 p-3 rounded mb-6 text-xs border border-green-700">
+                บทเรียน
+            </div>
+            <button class="bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-full shadow-lg cyber-font" onclick="location.reload()">รับคดีใหม่ (Random)</button>
+        </div>
+
+    </div>
+
+    <!-- --- STREAMING_CHUNK:Three.js Setup & Variables --- -->
+    <script>
+        // Game State
+        const GameState = { BRIEFING: 0, SCANNING: 1, DONE: 2 };
+        let currentState = GameState.BRIEFING;
+        let activeTool = 'view'; // view, ssl, meta
+        
+        const EvidenceStatus = { phone: false, note: false, usb: false };
+        let UnlockedStatus = { phone: false, note: false, usb: false };
+        let currentCaseData = null; // Store current case data
+
+        // ฟังก์ชันสุ่มลำดับใน Array (Fisher-Yates Shuffle)
+        function shuffleArray(array) {
+            let shuffled = [...array]; // สร้าง copy เพื่อไม่ให้กระทบข้อมูลต้นฉบับ
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        // --- STREAMING_CHUNK:Case Database (3 Randomized Cases - HARD MODE) ---
+        const caseDatabase = [
+            {
+                id: 1,
+                title: "การแฮกเพจโรงเรียน",
+                briefing: "แอดมินเพจของโรงเรียนถูกผู้ไม่หวังดีเจาะระบบเข้าบัญชี และโพสต์ข้อความหลอกลวงนักเรียนคนอื่นๆ <br><br><strong>ภารกิจของคุณ:</strong> ใช้เครื่องมือ AR สแกน <u>วัตถุพยานบนโต๊ะทำงาน</u> เพื่อค้นหาว่าแฮกเกอร์ใช้เทคนิคอะไรในการขโมยรหัสผ่านไป",
+                hint: "มิจฉาชีพมักใช้เทคนิค วิศวกรรมสังคม (Social Engineering) หลอกให้เหยื่อเปิดเผยข้อมูลเอง",
+                evidence: {
+                    phone: {
+                        unlockQuestion: {
+                            text: "ข้อใดคือเป้าหมายหลักของการทำ Social Engineering (วิศวกรรมสังคม)?",
+                            choices: [
+                                { text: "หลอกลวงให้บุคคลเปิดเผยข้อมูลความลับโดยใช้จิตวิทยา", isCorrect: true },
+                                { text: "การใช้สคริปต์เจาะรหัสผ่านแบบสุ่ม", isCorrect: false },
+                                { text: "การขโมยอุปกรณ์ฮาร์ดแวร์จากองค์กร", isCorrect: false },
+                                { text: "การดักจับข้อมูลบนเครือข่าย WiFi สาธารณะ", isCorrect: false }
+                            ],
+                            successMsg: "ยืนยันตัวตนสำเร็จ!",
+                            errorMsg: "การยืนยันล้มเหลว!"
+                        },
+                        desc: "พบข้อความแจ้งเตือนแปลกๆ ถูกส่งเข้ามา",
+                        sender: "Facebook Security",
+                        msg: "บัญชีของคุณมีการเข้าสู่ระบบผิดปกติ จะถูกระงับภายใน 24 ชม. กรุณายืนยันตัวตนด่วนที่ลิงก์ด้านล่าง",
+                        fakeUrl: "https://facebook.com/security/login",
+                        realUrl: "http://faceb00k-security-alert.tk/login",
+                        question: "สรุป: ลิงก์ที่ซ่อนอยู่นี้ใช้โจมตีด้วยรูปแบบใดตามหลัก Cybersecurity?",
+                        choices: [
+                            { text: "Phishing (ฟิชชิงหลอกให้กรอกข้อมูลผ่านเว็บปลอม)", isCorrect: true },
+                            { text: "Pharming (ฝังโค้ดเปลี่ยนเส้นทาง DNS ไปเว็บปลอม)", isCorrect: false },
+                            { text: "SQL Injection (แทรกคำสั่งเจาะฐานข้อมูลเว็บไซต์)", isCorrect: false },
+                            { text: "Man-in-the-Middle (ดักจับข้อมูลระหว่างทาง)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิดพลาด! สังเกตที่ URL ดีๆ นี่คือการสร้างหน้าเว็บเลียนแบบเพื่อหลอกลวงโดยตรง",
+                        successMsg: "ถูก! นี่คือเทคนิค Phishing หลอกให้กรอกรหัสผ่านในเว็บปลอม"
+                    },
+                    note: {
+                        unlockQuestion: {
+                            text: "ตามหลักความปลอดภัย มัลแวร์ (Malware) ย่อมาจากคำว่าอะไร?",
+                            choices: [
+                                { text: "Malicious Software (ซอฟต์แวร์ประสงค์ร้าย)", isCorrect: true },
+                                { text: "Malfunction Hardware (ฮาร์ดแวร์ทำงานผิดปกติ)", isCorrect: false },
+                                { text: "Multiple Warehouses (คลังข้อมูลขนาดใหญ่)", isCorrect: false },
+                                { text: "Mainframe Application (โปรแกรมคอมพิวเตอร์เมนเฟรม)", isCorrect: false }
+                            ],
+                            successMsg: "ปลดล็อกสำเร็จ!",
+                            errorMsg: "รหัสผิดพลาด!"
+                        },
+                        title: "รหัสผ่านเพจ:",
+                        content: "mimi2540",
+                        subcontent: "(มิมี่ ชื่อหมาสุดที่รัก + ปีเกิด)",
+                        question: "การตั้งรหัสผ่านแบบนี้ เสี่ยงต่อการถูกแฮกด้วยวิธีใดมากที่สุด?",
+                        choices: [
+                            { text: "Dictionary Attack (การเดารหัสจากคำศัพท์หรือข้อมูลส่วนตัว)", isCorrect: true },
+                            { text: "Zero-Day Exploit (การโจมตีช่องโหว่ที่ยังไม่มีแพตช์)", isCorrect: false },
+                            { text: "Cross-Site Scripting (XSS) (การฝังโค้ดอันตรายในเว็บ)", isCorrect: false },
+                            { text: "Denial of Service (DoS) (การโจมตีให้ระบบล่ม)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิด! มิจฉาชีพมักนำข้อมูลส่วนตัวของเหยื่อมาสร้างเป็นลิสต์คำศัพท์เพื่อใช้สุ่มเดารหัสผ่าน",
+                        successMsg: "ถูกต้อง! การใช้ข้อมูลส่วนตัวตั้งรหัส ทำให้โดนสุ่มเดาได้ง่ายผ่าน Dictionary Attack"
+                    },
+                    usb: {
+                        unlockQuestion: {
+                            text: "ข้อใดคือลักษณะของการตั้งรหัสผ่าน (Password) ที่ปลอดภัยที่สุด?",
+                            choices: [
+                                { text: "มีความยาวอย่างน้อย 8 ตัว ผสมทั้งตัวพิมพ์ใหญ่ พิมพ์เล็ก ตัวเลข และอักขระพิเศษ", isCorrect: true },
+                                { text: "ใช้ชื่อจริงและนามสกุลภาษาอังกฤษเพื่อให้จำได้ง่าย", isCorrect: false },
+                                { text: "ใช้ชุดตัวเลขที่เรียงกันเช่น 12345678 เพื่อความรวดเร็ว", isCorrect: false },
+                                { text: "ใช้รหัสผ่านเดียวกันในทุกๆ บัญชีเพื่อป้องกันการลืม", isCorrect: false }
+                            ],
+                            successMsg: "ตรวจสอบสิทธิ์ผ่าน!",
+                            errorMsg: "การยืนยันล้มเหลว!"
+                        },
+                        filename: "รายงานประชุม_โรงเรียน.docx",
+                        meta: "> ANALYZING METADATA...<br>> REAL_EXTENSION: <span class='text-red-500'>.exe (Executable)</span><br>> HIDDEN_SCRIPT: Trojan.Keylogger<br>> DESCRIPTION: ดักจับการพิมพ์แป้นพิมพ์",
+                        question: "มัลแวร์ตัวนี้มีพฤติกรรมสอดคล้องกับข้อใดมากที่สุด?",
+                        choices: [
+                            { text: "แฝงตัวเป็นโปรแกรมปกติ เพื่อบันทึกทุกการกดแป้นพิมพ์ส่งให้แฮกเกอร์", isCorrect: true },
+                            { text: "จำลองตัวเองและแพร่กระจายผ่านเครือข่ายไปยังเครื่องอื่น (Worm)", isCorrect: false },
+                            { text: "เข้ารหัสล็อกไฟล์เอกสารทั้งหมดเพื่อเรียกเงินค่าไถ่ (Ransomware)", isCorrect: false },
+                            { text: "แสดงโฆษณาป๊อปอัปจำนวนมากรบกวนการทำงาน (Adware)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิดพลาด! ลองดูที่คำว่า Keylogger (Key = แป้นพิมพ์, Log = บันทึก)",
+                        successMsg: "ถูกต้อง! Trojan จะหลอกว่าเป็นไฟล์ปกติ ส่วน Keylogger จะแอบบันทึกรหัสผ่านขณะพิมพ์"
+                    }
+                },
+                successSummary: "คุณพบว่าแฮกเกอร์ใช้เทคนิค:<br>1. ส่งลิงก์ <strong>Phishing</strong> หลอกเอาข้อมูลผ่าน SMS<br>2. แอดมินถูกเดารหัสผ่านง่ายด้วยวิธี <strong>Dictionary Attack</strong><br>3. แฮกเกอร์ซ่อนมัลแวร์ <strong>Trojan (Keylogger)</strong> ไว้ในไฟล์เอกสารปลอม",
+                successLesson: "บทเรียน: จงตรวจสอบ URL ทุกครั้ง, ตั้งรหัสผ่านที่ซับซ้อน และตรวจสอบนามสกุลไฟล์ก่อนเปิด (ระวังไฟล์ .exe ที่ปลอมตัวมา)!"
+            },
+            {
+                id: 2,
+                title: "ภัยเรียกค่าไถ่ห้องพยาบาล",
+                briefing: "เครื่องคอมพิวเตอร์ในห้องพยาบาลถูกล็อก ข้อมูลประวัตินักเรียนทั้งหมดถูกเข้ารหัส และมีข้อความข่มขู่เรียกเงินค่าไถ่ <br><br><strong>ภารกิจของคุณ:</strong> สแกนหาช่องโหว่ว่าไวรัสตัวนี้เข้ามาในระบบได้อย่างไร และข้อมูลส่วนตัวหลุดไปทางไหน",
+                hint: "การเผลอเปิดไฟล์แนบแปลกๆ หรือกดลิงก์ในข้อความหลอกลวง เป็นช่องทางหลักของการติดมัลแวร์",
+                evidence: {
+                    phone: {
+                        unlockQuestion: {
+                            text: "พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล (PDPA) มีจุดประสงค์หลักเพื่อคุ้มครองเรื่องใด?",
+                            choices: [
+                                { text: "การเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคล", isCorrect: true },
+                                { text: "การป้องกันไวรัสคอมพิวเตอร์แบบเรียกค่าไถ่", isCorrect: false },
+                                { text: "การป้องกันการแฮ็กเว็บไซต์ของหน่วยงานรัฐ", isCorrect: false },
+                                { text: "การคุ้มครองลิขสิทธิ์ของซอฟต์แวร์คอมพิวเตอร์", isCorrect: false }
+                            ],
+                            successMsg: "ปลดล็อกอุปกรณ์!",
+                            errorMsg: "รหัสไม่ถูกต้อง!"
+                        },
+                        desc: "มีอีเมลและ SMS แจ้งเตือนเรื่องธุรกรรมการเงิน",
+                        sender: "Thai Bank Alert",
+                        msg: "บัญชีธนาคารของคุณถูกระงับชั่วคราวเนื่องจากความผิดปกติ โปรดล็อกอินเพื่อยืนยันตัวตน",
+                        fakeUrl: "https://thaibank.co.th/verify",
+                        realUrl: "http://thaibamk-verify.ru/login.php",
+                        question: "การหลอกลวงผ่านข้อความ SMS แบบนี้ จัดอยู่ในประเภทใด?",
+                        choices: [
+                            { text: "Smishing (SMS Phishing)", isCorrect: true },
+                            { text: "Vishing (Voice Phishing / แก๊งคอลเซ็นเตอร์)", isCorrect: false },
+                            { text: "Spear Phishing (การหลอกลวงแบบเจาะจงบุคคลผ่านอีเมล)", isCorrect: false },
+                            { text: "Spoofing (การปลอมแปลง IP หรือหมายเลขเครื่อง)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิดพลาด! ข้อความหลอกลวงประเภทนี้ใช้ SMS เป็นช่องทางหลัก",
+                        successMsg: "ถูกต้อง! Smishing คือการหลอกลวงโดยใช้ SMS เพื่อให้คลิกลิงก์ปลอม"
+                    },
+                    note: {
+                        unlockQuestion: {
+                            text: "ข้อมูลใดต่อไปนี้ 'ไม่ใช่' ข้อมูลส่วนบุคคล (Personal Data) ตามกฎหมาย?",
+                            choices: [
+                                { text: "เลขประจำตัวผู้เสียภาษีของนิติบุคคล (บริษัท/องค์กร)", isCorrect: true },
+                                { text: "ลายนิ้วมือ และข้อมูลสแกนม่านตา", isCorrect: false },
+                                { text: "ชื่อ-นามสกุล และเบอร์โทรศัพท์ส่วนตัว", isCorrect: false },
+                                { text: "ประวัติการรักษาพยาบาล หรือข้อมูลสุขภาพ", isCorrect: false }
+                            ],
+                            successMsg: "ยืนยันตัวตนสำเร็จ!",
+                            errorMsg: "สิทธิ์ถูกปฏิเสธ!"
+                        },
+                        title: "โพสต์ล่าสุดบนโซเชียลมีเดีย:",
+                        content: "#ได้บัตรประชาชนใหม่แล้ว",
+                        subcontent: "(รูปถ่ายเซลฟี่คู่กับบัตรประชาชน เห็นเลข 13 หลักชัดเจน)",
+                        question: "พฤติกรรมนี้ก่อให้เกิดความเสี่ยงทาง พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล (PDPA) อย่างไร?",
+                        choices: [
+                            { text: "เสี่ยงต่อการถูกขโมยอัตลักษณ์บุคคล (Identity Theft) ไปสวมรอยทำธุรกรรม", isCorrect: true },
+                            { text: "เป็นการเปิดเผยข้อมูลพฤติกรรมเพื่อการขุดเหมืองข้อมูล (Data Mining)", isCorrect: false },
+                            { text: "เสี่ยงต่อการถูกกลั่นแกล้งทางออนไลน์ (Cyberbullying)", isCorrect: false },
+                            { text: "ทำให้คอมพิวเตอร์ติดมัลแวร์ประเภทลอจิกบอมบ์ (Logic Bomb)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิด! เลขบัตรประชาชนนำไปใช้ยืนยันตัวตนในโลกความเป็นจริงได้",
+                        successMsg: "ถูกต้อง! การทิ้ง Digital Footprint แบบนี้เสี่ยงต่อการถูกนำข้อมูลไปสวมรอยทำผิดกฎหมาย"
+                    },
+                    usb: {
+                        unlockQuestion: {
+                            text: "Ransomware (มัลแวร์เรียกค่าไถ่) มักแพร่กระจายผ่านช่องทางใดมากที่สุด?",
+                            choices: [
+                                { text: "การเปิดไฟล์แนบ หรือคลิกลิงก์จากอีเมลฟิชชิง (Phishing)", isCorrect: true },
+                                { text: "การสั่งพิมพ์เอกสารผ่านเครือข่าย", isCorrect: false },
+                                { text: "การแชร์หน้าจอ (Screen Mirroring)", isCorrect: false },
+                                { text: "การรับชมวิดีโอผ่าน YouTube", isCorrect: false }
+                            ],
+                            successMsg: "ปลดล็อกไฟล์สำเร็จ!",
+                            errorMsg: "ระบบปฏิเสธการเข้าถึง!"
+                        },
+                        filename: "ใบแจ้งหนี้_เดือนล่าสุด.pdf",
+                        meta: "> ANALYZING METADATA...<br>> REAL_EXTENSION: <span class='text-red-500'>.scr (Screen Saver)</span><br>> HIDDEN_SCRIPT: Ransomware.WannaCry<br>> DESCRIPTION: เข้ารหัสลับไฟล์ทั้งหมดในดิสก์",
+                        question: "กลไกหลักของมัลแวร์ประเภท Ransomware คือข้อใด?",
+                        choices: [
+                            { text: "ใช้กุญแจเข้ารหัส (Encryption) ล็อกไฟล์ไว้ แล้วบีบให้เหยื่อจ่ายเงินเพื่อปลดล็อก", isCorrect: true },
+                            { text: "แอบฝังตัวเพื่อเปิดช่องทางหลัง (Backdoor) ให้แฮกเกอร์เข้าควบคุมระบบ", isCorrect: false },
+                            { text: "ใช้ทรัพยากรเครื่องเหยื่อไปขุดเหรียญคริปโทเคอร์เรนซี (Cryptojacking)", isCorrect: false },
+                            { text: "ทำลายฮาร์ดแวร์ของคอมพิวเตอร์ให้เกิดความร้อนสูงจนไหม้เสียหาย", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิดพลาด! อ่านจาก DESCRIPTION ดูว่ามันทำอะไรกับไฟล์",
+                        successMsg: "ถูกต้อง! Ransomware จะล็อกและเข้ารหัสไฟล์ของเราเป็นตัวประกันเพื่อเรียกค่าไถ่"
+                    }
+                },
+                successSummary: "คุณพบว่าสาเหตุของเหตุการณ์นี้คือ:<br>1. ครูพยาบาลเผลอคลิกลิงก์ <strong>Smishing</strong> จากข้อความ SMS ปลอม<br>2. มีการโพสต์เปิดเผยข้อมูลส่วนบุคคล เสี่ยงต่อการถูก <strong>Identity Theft</strong><br>3. มีการโหลดไฟล์ <strong>Ransomware</strong> (ไวรัสเรียกค่าไถ่) มาทำให้ข้อมูลระบบถูกเข้ารหัส",
+                successLesson: "บทเรียน: อย่าโพสต์ข้อมูลสำคัญส่วนตัวลงอินเทอร์เน็ตเด็ดขาด และระวังอีเมล/SMS ที่อ้างตัวว่าเป็นธนาคารหรือหน่วยงานรัฐ"
+            },
+            {
+                id: 3,
+                title: "ประธานนักเรียนตัวปลอม",
+                briefing: "มีคนร้ายสร้างบัญชีโซเชียลปลอม (Impersonation) เป็นประธานนักเรียน แล้วทักแชทไปขอยืมเงินเพื่อนๆ หลายคน <br><br><strong>ภารกิจของคุณ:</strong> ตรวจสอบอุปกรณ์ของประธานนักเรียน เพื่อหาว่ามิจฉาชีพขโมยรหัสผ่านไปสร้างบัญชีปลอมได้อย่างไร",
+                hint: "นอกจากภัยออนไลน์แล้ว ความปลอดภัยทางกายภาพ (Physical Security) ก็มีความสำคัญไม่แพ้กัน",
+                evidence: {
+                    phone: {
+                        unlockQuestion: {
+                            text: "Identity Theft (การขโมยอัตลักษณ์บุคคล) หมายถึงการกระทำในข้อใด?",
+                            choices: [
+                                { text: "การนำข้อมูลส่วนบุคคลของผู้อื่นไปสวมรอยเพื่อทำธุรกรรมหรือหลอกลวง", isCorrect: true },
+                                { text: "การตั้งรหัสผ่านที่เดายากและซับซ้อนเกินไป", isCorrect: false },
+                                { text: "การเข้ารหัสไฟล์ข้อมูลเพื่อป้องกันการอ่านโดยไม่ได้รับอนุญาต", isCorrect: false },
+                                { text: "การคัดลอกไฟล์สำรองข้อมูล (Backup)", isCorrect: false }
+                            ],
+                            successMsg: "ยืนยันข้อมูลสำเร็จ!",
+                            errorMsg: "การอนุญาตล้มเหลว!"
+                        },
+                        desc: "พบประวัติการแชทในกลุ่มเล่นเกมที่มีคนส่งลิงก์มาให้",
+                        sender: "Game Master 99",
+                        msg: "ใครอยากได้สกินเกมฟรีให้กดเข้าสู่ระบบผ่านลิงก์นี้เลย แจกจำกัด 100 คนแรกเท่านั้น!",
+                        fakeUrl: "https://free-skin-giveaway.bit.ly",
+                        realUrl: "http://stealer-script.net/login-fake",
+                        question: "เป้าหมายหลักของเว็บไซต์ที่ซ่อนอยู่นี้คืออะไร?",
+                        choices: [
+                            { text: "Credential Harvesting (การเก็บเกี่ยวรหัสผ่านและบัญชีผู้ใช้)", isCorrect: true },
+                            { text: "Session Hijacking (การสวมรอยเซสชันหลังจากล็อกอินแล้ว)", isCorrect: false },
+                            { text: "DDoS Attack (การส่งทราฟฟิกปริมาณมากให้เว็บล่ม)", isCorrect: false },
+                            { text: "SEO Poisoning (การปั่นอันดับเว็บหลอกลวงใน Google)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิดพลาด! เว็บนี้ถูกออกแบบมาเพื่อหลอกให้คน 'พิมพ์' รหัสผ่านลงไป",
+                        successMsg: "ถูกต้อง! เป็นกลลวง Credential Harvesting เพื่อขโมย Username และ Password"
+                    },
+                    note: {
+                        unlockQuestion: {
+                            text: "ข้อใดถือเป็นภัยคุกคามทางกายภาพ (Physical Threat) ต่อความปลอดภัยข้อมูล?",
+                            choices: [
+                                { text: "การแอบดูรหัสผ่านจากด้านหลัง (Shoulder Surfing)", isCorrect: true },
+                                { text: "การเจาะรหัสผ่านด้วยเทคนิค Dictionary Attack", isCorrect: false },
+                                { text: "การส่งลิงก์หลอกลวงให้เหยื่อทาง SMS", isCorrect: false },
+                                { text: "การขโมยเซสชัน (Session Hijacking) ระหว่างทาง", isCorrect: false }
+                            ],
+                            successMsg: "เปิดเผยข้อมูลสำเร็จ!",
+                            errorMsg: "ไม่อนุญาตให้เข้าถึง!"
+                        },
+                        title: "กระดาษโน้ตแปะหน้าจอคอม:",
+                        content: "รหัส WiFi & IG",
+                        subcontent: "P@ssw0rd1234 (ห้ามบอกใครนะ!)",
+                        question: "พฤติกรรมนี้ถือเป็นช่องโหว่ด้านความปลอดภัยประเภทใด?",
+                        choices: [
+                            { text: "Shoulder Surfing (การแอบดูรหัสผ่านทางกายภาพ)", isCorrect: true },
+                            { text: "Packet Sniffing (การดักจับแพ็กเก็ตข้อมูลในเครือข่ายไร้สาย)", isCorrect: false },
+                            { text: "Dumpster Diving (การคุ้ยขยะหาข้อมูลสำคัญ)", isCorrect: false },
+                            { text: "Social Engineering (การหลอกลวงโดยใช้จิตวิทยา)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิด! นี่ไม่ใช่การแฮกผ่านระบบอินเทอร์เน็ต แต่เป็นการเข้าถึงข้อมูลโดยตรงด้วยตาเปล่าจากคนใกล้ตัว",
+                        successMsg: "ถูกต้อง! ถึงรหัสผ่านจะซับซ้อนแค่ไหน แต่ถ้าจดวางไว้ในที่โจ่งแจ้ง (Shoulder Surfing) ก็ไร้ประโยชน์"
+                    },
+                    usb: {
+                        unlockQuestion: {
+                            text: "การเช็คอิน (Check-in) ระบุพิกัดที่อยู่ตนเองแบบเรียลไทม์บนโซเชียล เสี่ยงต่อเรื่องใดมากที่สุด?",
+                            choices: [
+                                { text: "เปิดโอกาสให้มิจฉาชีพรู้ว่าไม่อยู่บ้าน เสี่ยงต่อการถูกโจรกรรม (อาชญากรรมทางกายภาพ)", isCorrect: true },
+                                { text: "ทำให้เปลืองโควต้าอินเทอร์เน็ตของสมาร์ทโฟน", isCorrect: false },
+                                { text: "ทำให้ระบบ GPS เสื่อมสภาพเร็วขึ้น", isCorrect: false },
+                                { text: "ทำให้คอมพิวเตอร์เสี่ยงติดมัลแวร์", isCorrect: false }
+                            ],
+                            successMsg: "ปลดล็อกเข้าถึงไฟล์!",
+                            errorMsg: "รหัสความปลอดภัยไม่ถูกต้อง!"
+                        },
+                        filename: "โปรแกรมโกงเกม_ทะลุกำแพง.exe",
+                        meta: "> ANALYZING METADATA...<br>> REAL_EXTENSION: <span class='text-red-500'>.exe (Executable)</span><br>> HIDDEN_SCRIPT: Spyware.RAT (Remote Access Trojan)<br>> DESCRIPTION: แอบดูหน้าจอและควบคุมเครื่องระยะไกล",
+                        question: "มัลแวร์ประเภท RAT (Remote Access Trojan) ก่อให้เกิดอันตรายอย่างไร?",
+                        choices: [
+                            { text: "เปิดประตูหลัง (Backdoor) ให้แฮกเกอร์เข้ามาควบคุมเครื่อง สอดแนม และโอนย้ายไฟล์ได้", isCorrect: true },
+                            { text: "ฝังตัวเงียบๆ และจะทำงานเมื่อถึงเวลาหรือเงื่อนไขที่กำหนดเท่านั้น (Logic Bomb)", isCorrect: false },
+                            { text: "เปลี่ยนคอมพิวเตอร์เป็นซอมบี้เพื่อไปโจมตีเป้าหมายอื่นพร้อมกัน (Botnet)", isCorrect: false },
+                            { text: "ลบไฟล์ระบบปฏิบัติการทั้งหมดทิ้งทันทีที่ถูกเปิดใช้งาน (Wiper)", isCorrect: false }
+                        ],
+                        errorMsg: "วิเคราะห์ผิดพลาด! คำว่า Remote Access หมายถึงการเข้าถึงและควบคุมเครื่องจากระยะไกล",
+                        successMsg: "ถูกต้อง! RAT ทำให้แฮกเกอร์ควบคุมเครื่องของเรา สอดแนมหน้าจอ และขโมยข้อมูลได้อิสระ"
+                    }
+                },
+                successSummary: "คุณพบว่าช่องโหว่ที่เกิดขึ้นมาจาก:<br>1. ความตกเป็นเหยื่อลิงก์ <strong>Credential Harvesting</strong> หลอกเอาบัญชี<br>2. ละเลยความปลอดภัยทางกายภาพ ปล่อยให้ถูก <strong>Shoulder Surfing</strong><br>3. การดาวน์โหลดโปรแกรมโกง มักจะมีมัลแวร์ <strong>Spyware (RAT)</strong> แฝงมาด้วยเสมอ",
+                successLesson: "บทเรียน: ของฟรีไม่มีในโลกอินเทอร์เน็ต หลีกเลี่ยงการใช้ซอฟต์แวร์ผิดลิขสิทธิ์ และเก็บรักษารหัสผ่านให้เป็นความลับเสมอ!"
+            }
+        ];
+
+        // Initialize Random Case
+        function initRandomCase() {
+            const randomIndex = Math.floor(Math.random() * caseDatabase.length);
+            currentCaseData = caseDatabase[randomIndex];
+
+            // 1. Briefing Modal
+            document.getElementById('case-title').innerHTML = `<i class="fas fa-folder-open mr-2"></i>แฟ้มคดี: ${currentCaseData.title}`;
+            document.getElementById('case-desc').innerHTML = currentCaseData.briefing;
+            document.getElementById('case-hint').innerHTML = `<i class="fas fa-lightbulb text-yellow-500 mr-1"></i> <strong>คำใบ้:</strong> ${currentCaseData.hint}`;
+
+            // 2. Phone Evidence
+            document.getElementById('phone-desc').innerText = currentCaseData.evidence.phone.desc;
+            document.getElementById('phone-sender').innerText = currentCaseData.evidence.phone.sender;
+            document.getElementById('phone-msg').innerText = currentCaseData.evidence.phone.msg;
+            document.getElementById('phone-fake-url').innerText = currentCaseData.evidence.phone.fakeUrl;
+            document.getElementById('phone-real-url').innerText = currentCaseData.evidence.phone.realUrl;
+            document.getElementById('phone-question').innerText = currentCaseData.evidence.phone.question;
+            
+            const phoneFeedback = document.getElementById('phone-feedback');
+            if(phoneFeedback) phoneFeedback.innerText = '';
+
+            const phoneChoices = document.getElementById('phone-choices');
+            phoneChoices.innerHTML = '';
+            // สุ่มลำดับตัวเลือกก่อน Render
+            const shuffledPhoneChoices = shuffleArray(currentCaseData.evidence.phone.choices);
+            shuffledPhoneChoices.forEach((choice, index) => {
+                const btn = document.createElement('button');
+                btn.className = `bg-gray-800 hover:bg-gray-700 p-2 rounded text-sm text-left border border-gray-600 transition-colors`;
+                // ใส่ ก. ข. ค. ง. แบบไดนามิกตามลำดับการสุ่ม
+                const prefix = String.fromCharCode(161 + index); // 161 is ก in Thai
+                btn.innerText = `${prefix}. ${choice.text}`;
+                btn.onclick = () => answerPhone(choice.isCorrect, btn);
+                phoneChoices.appendChild(btn);
+            });
+
+            // 3. Note Evidence
+            document.getElementById('note-title').innerText = currentCaseData.evidence.note.title;
+            document.getElementById('note-content').innerText = currentCaseData.evidence.note.content;
+            document.getElementById('note-subcontent').innerText = currentCaseData.evidence.note.subcontent;
+            document.getElementById('note-question').innerText = currentCaseData.evidence.note.question;
+
+            const noteFeedback = document.getElementById('note-feedback');
+            if(noteFeedback) noteFeedback.innerText = '';
+
+            const noteChoices = document.getElementById('note-choices');
+            noteChoices.innerHTML = '';
+            // สุ่มลำดับตัวเลือกก่อน Render
+            const shuffledNoteChoices = shuffleArray(currentCaseData.evidence.note.choices);
+            shuffledNoteChoices.forEach((choice, index) => {
+                const btn = document.createElement('button');
+                btn.className = `bg-gray-800 hover:bg-gray-700 p-2 rounded text-sm text-left border border-gray-600 transition-colors`;
+                const prefix = String.fromCharCode(161 + index); 
+                btn.innerText = `${prefix}. ${choice.text}`;
+                btn.onclick = () => answerNote(choice.isCorrect, btn);
+                noteChoices.appendChild(btn);
+            });
+
+            // 4. USB Evidence
+            document.getElementById('usb-filename').innerText = currentCaseData.evidence.usb.filename;
+            document.getElementById('usb-meta-box').innerHTML = currentCaseData.evidence.usb.meta;
+            document.getElementById('usb-question').innerText = currentCaseData.evidence.usb.question;
+
+            const usbFeedback = document.getElementById('usb-feedback');
+            if(usbFeedback) usbFeedback.innerText = '';
+
+            const usbChoices = document.getElementById('usb-choices');
+            usbChoices.innerHTML = '';
+            // สุ่มลำดับตัวเลือกก่อน Render
+            const shuffledUsbChoices = shuffleArray(currentCaseData.evidence.usb.choices);
+            shuffledUsbChoices.forEach((choice, index) => {
+                const btn = document.createElement('button');
+                btn.className = `bg-gray-800 hover:bg-gray-700 p-2 rounded text-sm text-left border border-gray-600 transition-colors`;
+                const prefix = String.fromCharCode(161 + index); 
+                btn.innerText = `${prefix}. ${choice.text}`;
+                btn.onclick = () => answerUsb(choice.isCorrect, btn);
+                usbChoices.appendChild(btn);
+            });
+
+            // 5. Success Modal
+            document.getElementById('success-summary').innerHTML = currentCaseData.successSummary;
+            document.getElementById('success-lesson').innerHTML = currentCaseData.successLesson;
+        }
+
+        // Call initialization before starting Three.js
+        initRandomCase();
+
+        // Three.js Core
+        const canvas = document.getElementById('webgl-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        
+        // เปิดระบบเงาและการปรับแต่งโทนสีภาพให้สมจริงขึ้น
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+
+        const scene = new THREE.Scene();
+        // เพิ่มหมอกจางๆ สีกลืนกับพื้นหลังให้ดูมีมิติความลึก
+        scene.fog = new THREE.FogExp2(0x020c1b, 0.03); 
+
+        // Camera positioned to look slightly down at a "desk"
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 5, 8);
+        camera.lookAt(0, 0, 0);
+
+        // Lighting (ปรับแสงให้ได้อารมณ์ Cyberpunk / สืบสวน)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        
+        // ไฟหลักสีฟ้าอมเขียว (Cyan)
+        const dirLight = new THREE.DirectionalLight(0x00ffaa, 1.5);
+        dirLight.position.set(5, 10, 5);
+        dirLight.castShadow = true; // เปิดเงา
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        dirLight.shadow.bias = -0.001;
+        scene.add(dirLight);
+        
+        // ไฟส่องโต๊ะสีน้ำเงินสว่าง
+        const spotLight = new THREE.SpotLight(0x0077ff, 3);
+        spotLight.position.set(-2, 10, 2);
+        spotLight.angle = Math.PI / 5;
+        spotLight.penumbra = 0.8;
+        spotLight.castShadow = true;
+        scene.add(spotLight);
+
+        // ไฟเสริมสีม่วงแดง (Magenta) ช่วยสะท้อนขอบวัตถุ
+        const fillLight = new THREE.PointLight(0xff00ff, 1.5, 20);
+        fillLight.position.set(3, 2, -3);
+        scene.add(fillLight);
+
+        // --- STREAMING_CHUNK:Building the 3D Crime Scene (Desk & Evidence) ---
+        
+        // 1. The Desk (วัสดุคล้ายกระจกดำ/โลหะสะท้อนแสง)
+        const deskGeo = new THREE.PlaneGeometry(30, 30);
+        const deskMat = new THREE.MeshStandardMaterial({ 
+            color: 0x050a15, 
+            roughness: 0.1,
+            metalness: 0.8
+        });
+        const desk = new THREE.Mesh(deskGeo, deskMat);
+        desk.rotation.x = -Math.PI / 2;
+        desk.receiveShadow = true; // รับเงาตกกระทบ
+        scene.add(desk);
+
+        // Grid (ตารางแนว AR Overlay)
+        const gridHelper = new THREE.GridHelper(30, 60, 0x00ffaa, 0x0077ff);
+        gridHelper.position.y = 0.01; 
+        gridHelper.material.opacity = 0.15;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+
+        // Group to hold all evidence
+        const evidenceGroup = new THREE.Group();
+        scene.add(evidenceGroup);
+
+        // Common Materials
+        // ซ่อนกล่อง Highlight ไว้เป็นล่องหน จะแสดงขึ้นมาเมื่อนำเมาส์ไปชี้
+        const hlMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, wireframe: true, transparent: true, opacity: 0.0 });
+
+        // 2. Evidence: Phone
+        const phoneGroup = new THREE.Group();
+        const phoneBodyGeo = new THREE.BoxGeometry(1.2, 0.15, 2.4);
+        const phoneMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9, roughness: 0.1 });
+        const phoneMesh = new THREE.Mesh(phoneBodyGeo, phoneMat);
+        phoneMesh.castShadow = true;
+        
+        // Phone Screen (หน้าจอสว่างเรืองแสง)
+        const screenGeo = new THREE.PlaneGeometry(1.0, 2.2);
+        const screenMat = new THREE.MeshStandardMaterial({ 
+            color: 0x000000, 
+            emissive: 0x0055ff, 
+            emissiveIntensity: 0.4,
+            roughness: 0.2
+        });
+        const screenMesh = new THREE.Mesh(screenGeo, screenMat);
+        screenMesh.rotation.x = -Math.PI / 2;
+        screenMesh.position.y = 0.08;
+        
+        phoneGroup.add(phoneMesh);
+        phoneGroup.add(screenMesh);
+        
+        // Highlight box for interaction
+        const phoneHb = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 2.6), hlMat.clone());
+        phoneGroup.add(phoneHb);
+        
+        phoneGroup.position.set(-2, 0.075, 1);
+        phoneGroup.rotation.y = Math.PI / 6;
+        phoneGroup.userData = { id: 'phone', name: 'สมาร์ทโฟน', base_y: 0.075 };
+        evidenceGroup.add(phoneGroup);
+
+        // 3. Evidence: Sticky Note
+        const noteGroup = new THREE.Group();
+        const noteGeo = new THREE.BoxGeometry(1.5, 0.02, 1.5);
+        const noteMat = new THREE.MeshStandardMaterial({ 
+            color: 0xfef3c7, 
+            roughness: 0.8,
+            emissive: 0x332200, // สว่างอ่อนๆ
+            emissiveIntensity: 0.2
+        });
+        const noteMesh = new THREE.Mesh(noteGeo, noteMat);
+        noteMesh.castShadow = true;
+        noteMesh.receiveShadow = true;
+        
+        const noteHb = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 1.7), hlMat.clone());
+        noteGroup.add(noteMesh);
+        noteGroup.add(noteHb);
+
+        noteGroup.position.set(2, 0.01, 1.5);
+        noteGroup.rotation.y = -Math.PI / 8;
+        noteGroup.userData = { id: 'note', name: 'กระดาษโน้ต', base_y: 0.01 };
+        evidenceGroup.add(noteGroup);
+
+        // 4. Evidence: USB Drive
+        const usbGroup = new THREE.Group();
+        const usbBody = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 1.1), new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.7, roughness: 0.4 }));
+        usbBody.castShadow = true;
+        
+        const usbMetal = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.5), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 1, roughness: 0.2 }));
+        usbMetal.position.z = -0.8;
+        usbMetal.castShadow = true;
+
+        // ไฟ LED เล็กๆ บน USB
+        const usbLed = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.1), new THREE.MeshStandardMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 1 }));
+        usbLed.position.set(0, 0.1, 0.2);
+        
+        const usbHb = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 2.0), hlMat.clone());
+        
+        usbGroup.add(usbBody);
+        usbGroup.add(usbMetal);
+        usbGroup.add(usbLed);
+        usbGroup.add(usbHb);
+
+        usbGroup.position.set(0, 0.1, -1.5);
+        usbGroup.rotation.y = Math.PI / 4;
+        usbGroup.userData = { id: 'usb', name: 'แฟลชไดรฟ์', base_y: 0.1 };
+        evidenceGroup.add(usbGroup);
+
+        const interactableObjects = [phoneHb, noteHb, usbHb];
+
+        // --- STREAMING_CHUNK:Interaction Logic (Raycasting) ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Hover effect variables
+        let hoveredObject = null;
+
+        window.addEventListener('pointermove', (event) => {
+            if (currentState !== GameState.SCANNING) return;
+            
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactableObjects);
+
+            if (intersects.length > 0) {
+                document.body.style.cursor = 'pointer';
+                const parent = intersects[0].object.parent;
+                const hitBox = intersects[0].object; // ตัวโครง Wireframe
+
+                if (hoveredObject !== parent) {
+                    if(hoveredObject) resetHover(hoveredObject);
+                    hoveredObject = parent;
+                    
+                    // แอนิเมชันตอนเอาเมาส์ชี้: ยกตัวขึ้นนุ่มนวล
+                    new TWEEN.Tween(hoveredObject.position)
+                        .to({ y: hoveredObject.userData.base_y + 0.3 }, 250)
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .start();
+                    
+                    // เฟดแสดงกรอบสแกน
+                    new TWEEN.Tween(hitBox.material)
+                        .to({ opacity: 0.4 }, 200)
+                        .start();
+                    
+                    // เอียงวัตถุรับสายตานิดหน่อย
+                    new TWEEN.Tween(hoveredObject.rotation)
+                        .to({ x: -0.1 }, 250)
+                        .start();
+                    
+                    document.getElementById('info-tooltip').innerText = `พบเป้าหมาย: ${hoveredObject.userData.name} (แตะเพื่อตรวจสอบ)`;
+                }
+            } else {
+                document.body.style.cursor = 'default';
+                if (hoveredObject) {
+                    resetHover(hoveredObject);
+                    hoveredObject = null;
+                    document.getElementById('info-tooltip').innerHTML = '<i class="fas fa-crosshairs text-teal-400 mr-2"></i> สแกนโต๊ะทำงานเพื่อหาวัตถุพยาน';
+                }
+            }
+        });
+
+        function resetHover(obj) {
+            let base_y = obj.userData.base_y;
+            
+            // แอนิเมชันกลับสู่ตำแหน่งและองศาเดิม
+            new TWEEN.Tween(obj.position)
+                .to({ y: base_y }, 300)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .start();
+            
+            new TWEEN.Tween(obj.rotation)
+                .to({ x: 0 }, 300)
+                .start();
+
+            // เฟดกรอบสแกนให้หายไป (กรอบจะอยู่เป็น Child ตัวสุดท้ายเสมอ)
+            const hitBox = obj.children[obj.children.length - 1];
+            if (hitBox && hitBox.material) {
+                new TWEEN.Tween(hitBox.material)
+                    .to({ opacity: 0.0 }, 200)
+                    .start();
+            }
+        }
+
+        window.addEventListener('pointerdown', (event) => {
+            if (currentState !== GameState.SCANNING) return;
+            
+            // Prevent triggering if clicking UI
+            if (event.target.closest('button') || event.target.closest('.modal')) return;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactableObjects);
+
+            if (intersects.length > 0) {
+                const evidenceId = intersects[0].object.parent.userData.id;
+                handleEvidenceClick(evidenceId);
+            }
+        });
+
+        // --- STREAMING_CHUNK:Game Logic & UI Flow ---
+
+        window.startGame = function() {
+            document.getElementById('modal-briefing').style.display = 'none';
+            currentState = GameState.SCANNING;
+            
+            // Animate camera moving down to desk
+            new TWEEN.Tween(camera.position)
+                .to({ y: 4, z: 5 }, 2000)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+        };
+
+        window.selectTool = function(toolId) {
+            activeTool = toolId;
+            // Update UI buttons
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`tool-${toolId}`).classList.add('active');
+            
+            let toolName = "";
+            if(toolId === 'view') toolName = "มองพินิจ (ตรวจสอบทั่วไป)";
+            if(toolId === 'ssl') toolName = "ตัวกรอง URL (หา Phishing)";
+            if(toolId === 'meta') toolName = "วิเคราะห์ Metadata (หาร่องรอยไฟล์)";
+            
+            const tooltip = document.getElementById('info-tooltip');
+            tooltip.innerHTML = `<i class="fas fa-wrench text-teal-400 mr-2"></i> สวมใส่เครื่องมือ: ${toolName}`;
+            
+            // Glow effect
+            tooltip.classList.add('shadow-[0_0_15px_#00ffaa]');
+            setTimeout(() => tooltip.classList.remove('shadow-[0_0_15px_#00ffaa]'), 500);
+        };
+
+        function openLockModal(id) {
+            const qData = currentCaseData.evidence[id].unlockQuestion;
+            
+            document.getElementById('lock-question').innerText = qData.text;
+            const feedback = document.getElementById('lock-feedback');
+            feedback.innerText = '';
+            
+            const choicesDiv = document.getElementById('lock-choices');
+            choicesDiv.innerHTML = '';
+            
+            // สุ่มตำแหน่งคำตอบของด่านล็อกรหัส
+            const shuffledChoices = shuffleArray(qData.choices);
+            shuffledChoices.forEach((choice, index) => {
+                const btn = document.createElement('button');
+                btn.className = `bg-gray-800 hover:bg-gray-700 p-2 rounded text-sm text-left border border-gray-600 transition-colors`;
+                const prefix = String.fromCharCode(161 + index); 
+                btn.innerText = `${prefix}. ${choice.text}`;
+                btn.onclick = () => answerUnlock(choice.isCorrect, btn, id);
+                choicesDiv.appendChild(btn);
+            });
+
+            document.getElementById('modal-lock').style.display = 'block';
+        }
+
+        window.answerUnlock = function(isCorrect, btnElement, id) {
+            const feedback = document.getElementById('lock-feedback');
+            const qData = currentCaseData.evidence[id].unlockQuestion;
+            const buttons = document.getElementById('lock-choices').querySelectorAll('button');
+            buttons.forEach(b => b.classList.remove('bg-red-800', 'bg-green-700', 'border-red-500', 'border-green-500', 'text-white'));
+
+            if(isCorrect) {
+                btnElement.classList.add('bg-green-700', 'border-green-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-green-400 font-bold";
+                feedback.innerHTML = `<i class="fas fa-unlock"></i> ${qData.successMsg}`;
+                buttons.forEach(b => b.disabled = true);
+                
+                // ถ้ารหัสถูก ให้ปลดล็อกและหน่วงเวลา 1.5 วิ ก่อนเปิดหลักฐานจริงๆ
+                setTimeout(() => {
+                    UnlockedStatus[id] = true;
+                    handleEvidenceClick(id); // เข้าฟังก์ชันเปิด Modal หลักฐาน
+                }, 1500);
+            } else {
+                btnElement.classList.add('bg-red-800', 'border-red-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-red-500";
+                feedback.innerHTML = `<i class="fas fa-times-circle"></i> ${qData.errorMsg}`;
+            }
+        };
+
+        function handleEvidenceClick(id) {
+            if (EvidenceStatus[id]) {
+                alertCustom("รวบรวมหลักฐานชิ้นนี้ไปแล้ว");
+                return;
+            }
+
+            closeModals();
+
+            // เช็คว่าปลดล็อกหรือยัง ถ้ายังให้ไปที่หน้าถามรหัส
+            if (!UnlockedStatus[id]) {
+                openLockModal(id);
+                return;
+            }
+
+            const modal = document.getElementById(`modal-${id}`);
+            
+            // Custom Logic based on active tool
+            if (id === 'phone') {
+                if (activeTool === 'ssl') {
+                    // correct tool
+                    document.getElementById('phone-action-area').style.display = 'none';
+                    document.getElementById('phone-ssl-revealed').style.display = 'block';
+                } else {
+                    document.getElementById('phone-action-area').style.display = 'block';
+                    document.getElementById('phone-ssl-revealed').style.display = 'none';
+                }
+            } 
+            else if (id === 'usb') {
+                if (activeTool === 'meta') {
+                    // correct tool
+                    document.getElementById('usb-action-area').style.display = 'none';
+                    document.getElementById('usb-meta-revealed').style.display = 'block';
+                } else {
+                    document.getElementById('usb-action-area').style.display = 'block';
+                    document.getElementById('usb-meta-revealed').style.display = 'none';
+                }
+            }
+            // Note doesn't require a special tool, just viewing is enough
+
+            modal.style.display = 'block';
+        }
+
+        window.closeModals = function() {
+            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+        };
+
+        function markResolved(id) {
+            EvidenceStatus[id] = true;
+            const progressEl = document.getElementById(`progress-${id}`);
+            if (progressEl) {
+                progressEl.classList.remove('text-gray-500');
+                progressEl.classList.add('text-green-400', 'font-bold');
+            }
+            closeModals();
+            checkWinCondition();
+        }
+
+        // Answer Checking Logic Updates
+        window.answerPhone = function(isCorrect, btnElement) {
+            const feedback = document.getElementById('phone-feedback');
+            const buttons = document.getElementById('phone-choices').querySelectorAll('button');
+            buttons.forEach(b => b.classList.remove('bg-red-800', 'bg-green-700', 'border-red-500', 'border-green-500', 'text-white'));
+
+            if(isCorrect) {
+                btnElement.classList.add('bg-green-700', 'border-green-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-green-400 font-bold";
+                feedback.innerText = currentCaseData.evidence.phone.successMsg;
+                // ปิดปุ่มทั้งหมดไม่ให้กดซ้ำ
+                buttons.forEach(b => b.disabled = true);
+                // หน่วงเวลา 3 วินาทีให้อ่านคำอธิบายก่อนปิดหน้าต่าง
+                setTimeout(() => markResolved('phone'), 3000);
+            } else {
+                btnElement.classList.add('bg-red-800', 'border-red-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-red-500";
+                feedback.innerText = currentCaseData.evidence.phone.errorMsg;
+            }
+        };
+
+        window.answerNote = function(isCorrect, btnElement) {
+            const feedback = document.getElementById('note-feedback');
+            const buttons = document.getElementById('note-choices').querySelectorAll('button');
+            buttons.forEach(b => b.classList.remove('bg-red-800', 'bg-green-700', 'border-red-500', 'border-green-500', 'text-white'));
+
+            if(isCorrect) {
+                btnElement.classList.add('bg-green-700', 'border-green-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-green-400 font-bold";
+                feedback.innerText = currentCaseData.evidence.note.successMsg;
+                buttons.forEach(b => b.disabled = true);
+                setTimeout(() => markResolved('note'), 3000);
+            } else {
+                btnElement.classList.add('bg-red-800', 'border-red-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-red-500";
+                feedback.innerText = currentCaseData.evidence.note.errorMsg;
+            }
+        };
+
+        window.answerUsb = function(isCorrect, btnElement) {
+            const feedback = document.getElementById('usb-feedback');
+            const buttons = document.getElementById('usb-choices').querySelectorAll('button');
+            buttons.forEach(b => b.classList.remove('bg-red-800', 'bg-green-700', 'border-red-500', 'border-green-500', 'text-white'));
+
+            if(isCorrect) {
+                btnElement.classList.add('bg-green-700', 'border-green-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-green-400 font-bold";
+                feedback.innerText = currentCaseData.evidence.usb.successMsg;
+                buttons.forEach(b => b.disabled = true);
+                setTimeout(() => markResolved('usb'), 3000);
+            } else {
+                btnElement.classList.add('bg-red-800', 'border-red-500', 'text-white');
+                feedback.className = "text-xs text-center min-h-[2rem] mt-3 text-red-500";
+                feedback.innerText = currentCaseData.evidence.usb.errorMsg;
+            }
+        };
+
+        function checkWinCondition() {
+            if (EvidenceStatus.phone && EvidenceStatus.note && EvidenceStatus.usb) {
+                currentState = GameState.DONE;
+                setTimeout(() => {
+                    document.getElementById('modal-success').style.display = 'block';
+                }, 1000);
+            }
+        }
+
+        // Custom alert to avoid browser alert()
+        function alertCustom(msg, isSuccess = false) {
+            const tooltip = document.getElementById('info-tooltip');
+            const originalHTML = tooltip.innerHTML;
+            tooltip.innerText = msg;
+            
+            if(isSuccess) {
+                tooltip.classList.replace('text-teal-100', 'text-green-400');
+                tooltip.classList.add('border-green-500');
+            } else {
+                tooltip.classList.replace('text-teal-100', 'text-red-400');
+                tooltip.classList.add('border-red-500');
+            }
+            
+            setTimeout(() => {
+                tooltip.innerHTML = originalHTML;
+                tooltip.className = "absolute bottom-10 glass-panel px-6 py-3 rounded-full text-sm text-teal-100 cyber-font pointer-events-auto transition-all text-center";
+            }, 3000);
+        }
+
+        // --- STREAMING_CHUNK:Render Loop ---
+        const clock = new THREE.Clock();
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            TWEEN.update(time);
+
+            const elapsedTime = clock.getElapsedTime();
+
+            // Subtle desk rotation/movement for AR feel
+            if (currentState === GameState.SCANNING) {
+                evidenceGroup.rotation.y = Math.sin(elapsedTime * 0.2) * 0.05;
+                camera.position.x = Math.sin(elapsedTime * 0.5) * 0.2;
+                camera.position.y = 4 + Math.cos(elapsedTime * 0.5) * 0.1;
+                camera.lookAt(0, 0, 0);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start Loop
+        animate();
+
+    </script>
+</body>
+</html>
